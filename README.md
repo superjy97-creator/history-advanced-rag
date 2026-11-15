@@ -4,6 +4,11 @@
 한국어로 해설하는 수업 과제 프로젝트입니다. 역사학 전공자와 일반 학습자가 사료 원문,
 출처, 이용조건을 함께 확인할 수 있도록 설계했습니다.
 
+## 발표 자료
+
+- [모듈4 과제 발표 PowerPoint](presentation/history_advanced_rag_presentation.pptx)
+- [슬라이드별 발표 대본](presentation/presentation_script.md)
+
 ## 문서 안내
 
 - [AI 답변 및 검증 지침](docs/AI_답변_및_검증_지침.md): 실제 프롬프트와 Python 검증 조건
