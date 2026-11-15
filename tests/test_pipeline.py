@@ -9,7 +9,7 @@ from history_rag.llm import (
     _message_text,
 )
 from history_rag.models import Citation, DraftAnswer, SourceDocument, TransformedQuery
-from history_rag.pipeline import AdvancedRAGPipeline
+from history_rag.pipeline import AdvancedRAGPipeline, _exact_source_quote
 
 DOC = SourceDocument(
     id="sg_001_0020_0010",
@@ -72,7 +72,32 @@ class NoEvidenceLLM(FakeLLM):
         return []
 
 
+class IncompleteCoverageLLM(FakeLLM):
+    def verify_semantics(self, question, draft, documents):
+        result = super().verify_semantics(question, draft, documents)
+        result["coverage"] = [
+            {
+                "item": "첫 번째 사건",
+                "supported": True,
+                "doc_id": DOC.id,
+                "quote": "四月丙辰即位",
+            },
+            {
+                "item": "두 번째 사건",
+                "supported": False,
+                "doc_id": "",
+                "quote": "",
+            },
+        ]
+        return result
+
+
 class PipelineTests(unittest.TestCase):
+    def test_quote_wrapper_is_removed_only_when_inner_text_is_exact(self):
+        self.assertEqual(_exact_source_quote("“四月丙辰即位”", DOC.text), "四月丙辰即位")
+        self.assertIsNone(_exact_source_quote("“四月丙辰에 즉위”", DOC.text))
+        self.assertIsNone(_exact_source_quote("四月丙辰即位。", DOC.text))
+
     def test_rerank_evidence_allows_only_exact_segments_around_ellipsis(self):
         text = "盖已往之興亡, 實將來之勸戒. 중간 문장. 揭明鑑於後人, 期不沒善惡之實."
         self.assertTrue(
@@ -126,6 +151,29 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result.verification.status, "needs_review")
         self.assertIn("원문과 일치하지 않는 인용문", result.verification.issues[0])
         self.assertFalse(result.verification.supported_citations)
+
+    def test_multiple_requested_events_report_missing_evidence(self):
+        result = AdvancedRAGPipeline(IncompleteCoverageLLM(), FakeRetriever()).run(
+            "첫 번째 사건과 두 번째 사건은 언제인가?"
+        )
+
+        self.assertEqual(result.verification.status, "needs_review")
+        self.assertIn("질문 핵심 항목 근거 부족: 두 번째 사건", result.verification.issues)
+
+    def test_generation_prompt_requires_explanation_sections_and_exact_quotes(self):
+        llm = OpenAIHistoryLLM.__new__(OpenAIHistoryLLM)
+        captured = {}
+
+        def fake_json(system, user):
+            captured["system"] = system
+            return {"answer": "근거가 부족합니다.", "citations": []}
+
+        llm._json = fake_json
+        llm.generate("질문", [DOC])
+
+        self.assertIn("### 핵심 답변", captured["system"])
+        self.assertIn("### 역사적 맥락", captured["system"])
+        self.assertIn("연속된 문자열", captured["system"])
 
     def test_zero_rerank_results_use_refusal_without_generation(self):
         llm = NoEvidenceLLM()

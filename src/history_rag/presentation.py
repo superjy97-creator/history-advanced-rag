@@ -31,6 +31,14 @@ def public_citation_text(
     return public_text
 
 
+def public_issue_text(text: str, source_titles: Mapping[str, str]) -> str:
+    """검증 경고의 내부 ID를 사용자가 이해할 수 있는 사료 제목으로 바꾼다."""
+    public_text = text
+    for source_id in sorted(source_titles, key=len, reverse=True):
+        public_text = public_text.replace(source_id, f"‘{source_titles[source_id]}’")
+    return public_text
+
+
 def public_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
     """원본 메타데이터를 바꾸지 않고 화면에서 내부 식별자 필드만 감춘다."""
     return {

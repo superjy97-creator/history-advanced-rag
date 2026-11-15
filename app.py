@@ -9,6 +9,7 @@ from history_rag.pipeline import AdvancedRAGPipeline
 from history_rag.presentation import (
     citation_number_map,
     public_citation_text,
+    public_issue_text,
     public_metadata,
     public_trace,
 )
@@ -328,6 +329,7 @@ if st.button("사료 검색 및 해설 시작", type="primary", disabled=not que
             ["검증된 해설", "출처·인용", "검증 기록"]
         )
         sources = {d.id: d for d in result.reranked}
+        source_titles = {source_id: source.title for source_id, source in sources.items()}
         citation_numbers = citation_number_map(result.verification.supported_citations)
         known_source_ids = tuple(sources)
 
@@ -345,11 +347,7 @@ if st.button("사료 검색 및 해설 시작", type="primary", disabled=not que
             else:
                 st.warning("일부 근거는 추가 검토가 필요합니다.")
                 for issue in result.verification.issues:
-                    displayed_issue = public_citation_text(
-                        issue,
-                        citation_numbers,
-                        known_source_ids,
-                    )
+                    displayed_issue = public_issue_text(issue, source_titles)
                     st.write(f"- {displayed_issue}")
 
         with source_tab:

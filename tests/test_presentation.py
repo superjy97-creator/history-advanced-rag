@@ -6,6 +6,7 @@ from history_rag.models import Citation
 from history_rag.presentation import (
     citation_number_map,
     public_citation_text,
+    public_issue_text,
     public_metadata,
     public_trace,
 )
@@ -29,6 +30,15 @@ class PresentationTests(unittest.TestCase):
             public_citation_text(f"해설 [{source_id}]", {}, (source_id,)),
             "해설 [출처 확인 필요]",
         )
+
+    def test_verification_issue_uses_title_instead_of_internal_id(self):
+        source_id = "official-sillok-kda_12512030_002"
+        issue = f"원문과 일치하지 않는 인용문: {source_id}"
+
+        displayed = public_issue_text(issue, {source_id: "훈민정음을 창제하다"})
+
+        self.assertNotIn(source_id, displayed)
+        self.assertEqual(displayed, "원문과 일치하지 않는 인용문: ‘훈민정음을 창제하다’")
 
     def test_public_metadata_hides_ids_without_mutating_original(self):
         metadata = {

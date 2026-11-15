@@ -3,12 +3,28 @@ from __future__ import annotations
 from typing import Protocol
 
 from .models import (
+    Citation,
     DraftAnswer,
     PipelineResult,
     SourceDocument,
     TransformedQuery,
     VerificationResult,
 )
+
+QUOTE_WRAPPERS = (("\"", "\""), ("“", "”"), ("‘", "’"), ("'", "'"))
+
+
+def _exact_source_quote(quote: str, source_text: str) -> str | None:
+    """원문에서 실제 회수 가능한 인용만 반환한다."""
+    candidate = quote.strip()
+    if candidate and candidate in source_text:
+        return candidate
+    for opening, closing in QUOTE_WRAPPERS:
+        if candidate.startswith(opening) and candidate.endswith(closing):
+            inner = candidate[len(opening) : -len(closing)].strip()
+            if inner and inner in source_text:
+                return inner
+    return None
 
 
 class HistoryLLM(Protocol):
@@ -94,16 +110,29 @@ class AdvancedRAGPipeline:
                 issues.append(f"존재하지 않는 출처 ID: {citation.source_id}")
             elif not citation.quote.strip():
                 issues.append(f"빈 인용문: {citation.source_id}")
-            elif citation.quote not in source.text:
-                issues.append(f"원문과 일치하지 않는 인용문: {citation.source_id}")
+            elif exact_quote := _exact_source_quote(citation.quote, source.text):
+                valid.append(Citation(citation.source_id, exact_quote))
             else:
-                valid.append(citation)
+                issues.append(f"원문과 일치하지 않는 인용문: {citation.source_id}")
 
         semantic = self.llm.verify_semantics(question, draft, documents)
         issues.extend(str(item) for item in semantic.get("removed_reason", []))
         claims = semantic.get("claims", [])
         unsupported = [str(c.get("claim", "")) for c in claims if not c.get("supported")]
         issues.extend(f"근거 없는 주장 제거: {claim}" for claim in unsupported if claim)
+        coverage = semantic.get("coverage", [])
+        for item in coverage if isinstance(coverage, list) else []:
+            if not isinstance(item, dict):
+                continue
+            requested_item = str(item.get("item") or "질문의 핵심 항목")
+            source = by_id.get(str(item.get("doc_id") or ""))
+            exact_quote = (
+                _exact_source_quote(str(item.get("quote") or ""), source.text)
+                if source is not None
+                else None
+            )
+            if not item.get("supported") or source is None or exact_quote is None:
+                issues.append(f"질문 핵심 항목 근거 부족: {requested_item}")
         faithfulness = float(semantic.get("faithfulness", 0.0))
         refusal = draft.answer == "제공된 문서에서 확인되지 않는다." and not documents
         supported = (bool(semantic.get("answerable")) and bool(valid) and not issues) or refusal
