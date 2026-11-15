@@ -6,6 +6,12 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from history_rag.config import Settings
 from history_rag.llm import GeminiHistoryLLM, OpenAIHistoryLLM, RoutedHistoryLLM
 from history_rag.pipeline import AdvancedRAGPipeline
+from history_rag.presentation import (
+    citation_number_map,
+    public_citation_text,
+    public_metadata,
+    public_trace,
+)
 from history_rag.rights import attribution_text
 from history_rag.tool_calling import HybridHistoryRetriever
 from history_rag.vectorstore import PineconeHistoryStore
@@ -321,25 +327,39 @@ if st.button("사료 검색 및 해설 시작", type="primary", disabled=not que
         answer_tab, source_tab, verification_tab = st.tabs(
             ["검증된 해설", "출처·인용", "검증 기록"]
         )
+        sources = {d.id: d for d in result.reranked}
+        citation_numbers = citation_number_map(result.verification.supported_citations)
+        known_source_ids = tuple(sources)
 
         with answer_tab:
             st.subheader("사료 기반 해설")
-            st.write(result.verification.final_answer)
+            st.write(
+                public_citation_text(
+                    result.verification.final_answer,
+                    citation_numbers,
+                    known_source_ids,
+                )
+            )
             if result.verification.status == "passed":
                 st.success("인용문과 출처가 원문에서 확인되었습니다.")
             else:
                 st.warning("일부 근거는 추가 검토가 필요합니다.")
                 for issue in result.verification.issues:
-                    st.write(f"- {issue}")
+                    displayed_issue = public_citation_text(
+                        issue,
+                        citation_numbers,
+                        known_source_ids,
+                    )
+                    st.write(f"- {displayed_issue}")
 
         with source_tab:
             st.subheader("출처와 직접 인용")
-            sources = {d.id: d for d in result.reranked}
             if not result.verification.supported_citations:
                 st.info("검증을 통과한 직접 인용이 없습니다.")
             for citation in result.verification.supported_citations:
                 source = sources[citation.source_id]
-                with st.expander(f"{source.title} · {citation.source_id}"):
+                citation_number = citation_numbers[citation.source_id]
+                with st.expander(f"[{citation_number}] {source.title}"):
                     st.info(citation.quote)
                     st.caption(attribution_text(source))
                     link_label = (
@@ -348,12 +368,12 @@ if st.button("사료 검색 및 해설 시작", type="primary", disabled=not que
                         else "데이터셋 소개 페이지 (개별 원문 URL 아님)"
                     )
                     st.markdown(f"[{link_label}]({source.source_url})")
-                    st.json(source.metadata)
+                    st.json(public_metadata(source.metadata))
 
         with verification_tab:
             st.subheader("Advanced RAG 실행 기록")
             st.write("검증 상태:", result.verification.status)
             st.write("변환된 검색 질의:", result.query.search_query)
-            st.json(result.trace)
-    except Exception as exc:
-        st.error(f"실행 중 오류가 발생했습니다: {exc}")
+            st.json(public_trace(result.trace))
+    except Exception:
+        st.error("실행 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.")
