@@ -1,0 +1,15 @@
+# Streamlit Cloud가 이 저장소의 src/history_rag 패키지를 설치하도록 한다.
+-e .
+
+# 실제 통합 테스트를 통과한 런타임 버전
+langchain-core==1.8.0
+langchain-google-genai==4.5.0
+langchain-openai==1.7.4
+langchain-pinecone==0.2.13
+openai==3.50.0
+pinecone==7.3.0
+pydantic==2.14.3
+python-dotenv==1.2.4
+streamlit==1.67.0
+tiktoken==0.14.0
+

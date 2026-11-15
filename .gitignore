@@ -1,0 +1,51 @@
+# API 키·인증정보·로컬 설정
+.env
+.env.*
+.streamlit/secrets.toml
+*.pem
+*.key
+credentials*.json
+secrets*.toml
+
+# 대용량 역사 사료와 전처리 결과
+data/
+
+# 임시 파일·실행 로그·체크포인트
+tmp/
+logs/
+*.log
+*.checkpoint.json
+*.batches.jsonl
+reports/*
+
+# 승인된 공개 검증 보고서만 예외적으로 포함 가능
+!reports/lesson_and_data_review.md
+!reports/dataset_audit_summary_20261114.md
+!reports/rag_dataset_readiness_20261114.md
+!reports/rights_research_summary_20261114.md
+!reports/rights_registry_20261114_final.json
+!reports/sillok_official_verification_summary_20261114.md
+!reports/multiera_corpus_readiness_20261114.md
+!reports/upload_readiness_large_3072_20261114.md
+
+# Python 캐시·테스트·빌드 산출물
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# 가상환경과 로컬 IDE 설정
+.venv/
+venv/
+.vscode/
+
+# 운영체제 임시 파일
+.DS_Store
+Thumbs.db
