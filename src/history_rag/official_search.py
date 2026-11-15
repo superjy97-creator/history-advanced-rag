@@ -28,6 +28,18 @@ def _section(page: str, heading: str) -> str:
     return _plain(match.group(1)) if match else ""
 
 
+def _record_header(page: str) -> tuple[str, str]:
+    """공식 상세 화면의 기사 일자와 제목을 구조화된 영역에서 읽는다."""
+    match = re.search(
+        r'<div class="title-head">.*?<p class="date">(.*?)</p>\s*<h3>(.*?)</h3>',
+        page,
+        re.DOTALL,
+    )
+    if not match:
+        return "", ""
+    return _plain(match.group(1)), _plain(match.group(2))
+
+
 @dataclass(frozen=True)
 class OfficialSearchTrace:
     query: str
@@ -107,8 +119,9 @@ class OfficialHistoryClient:
         source_url = SILLOK_ITEM_URL.format(article_id=urllib.parse.quote(article_id, safe="_"))
         request = urllib.request.Request(source_url, headers={"User-Agent": USER_AGENT})
         page = self._fetcher(request, self.timeout_seconds)
+        record_date, record_title = _record_header(page)
         title_match = re.search(r"<h3>(.*?)</h3>", page, re.DOTALL)
-        title = _plain(title_match.group(1)) if title_match else fallback_title
+        title = record_title or (_plain(title_match.group(1)) if title_match else fallback_title)
         translation = _section(page, "국역")
         original = _section(page, "원문")
         text = translation
@@ -116,6 +129,9 @@ class OfficialHistoryClient:
             text = f"{translation}\n\n[원문]\n{original}" if translation else original
         if not text:
             raise ValueError(f"공식 기사 본문을 찾지 못했습니다: {article_id}")
+        if record_date:
+            text = f"[공식 기사 일자] {record_date}\n[기사 제목] {title}\n\n{text}"
+        western_years = tuple(dict.fromkeys(re.findall(r"(?<!\d)(\d{4})년", record_date)))
         return SourceDocument(
             id=f"official-sillok-{article_id}",
             text=text,
@@ -127,6 +143,9 @@ class OfficialHistoryClient:
                 "provider": "국사편찬위원회 조선왕조실록",
                 "retrieval_path": "official_live",
                 "has_original_text": bool(original),
+                "record_date": record_date,
+                "event_title": title,
+                "western_years": western_years,
             },
             score=1.0,
         )

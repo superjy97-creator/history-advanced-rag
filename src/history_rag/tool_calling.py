@@ -28,6 +28,8 @@ def _document_payload(document: SourceDocument) -> dict[str, Any]:
         "source_url_type": document.metadata.get("source_url_type", "official_record"),
         "dataset_key": document.metadata.get("dataset_key", ""),
         "retrieval_path": document.metadata.get("retrieval_path", ""),
+        "record_date": document.metadata.get("record_date", ""),
+        "event_title": document.metadata.get("event_title", document.title),
         "score": document.score,
     }
 
@@ -63,7 +65,9 @@ class HybridHistoryRetriever:
                 description=(
                     "Search the official National Institute of Korean History "
                     "Joseon Dynasty Annals site. It returns live corroboration, "
-                    "stable URLs, Korean translations and original text."
+                    "official record dates, stable URLs, Korean translations and original text. "
+                    "Use a concise event or proper-name query when Pinecone evidence does not "
+                    "directly establish every year, month, day, or period requested."
                 ),
             ),
         ]
@@ -124,43 +128,67 @@ class HybridHistoryRetriever:
         messages: list[Any] = [
             SystemMessage(
                 content=(
-                    "You route evidence searches for a Korean-history RAG. Always request "
-                    "search_pinecone_history. Also request search_official_history when "
-                    "Joseon Annals can directly corroborate the question. Request at most "
-                    "two tools. Do not answer the history question yourself."
+                    "You route evidence searches for a Korean-history RAG. First request "
+                    "search_pinecone_history. Inspect its returned evidence. Decide whether the "
+                    "question requires an exact year, month, day, sequence, or period. If every "
+                    "requested temporal fact is already explicit, do not search again. If such "
+                    "facts are missing and the Joseon Annals can directly corroborate them, then "
+                    "request search_official_history with a concise event or proper-name query. "
+                    "Never invent a date. Request at most two tools in total and do not answer "
+                    "the history question yourself."
                 )
             ),
             HumanMessage(content=clean_query),
         ]
-        response = self._bound_model.invoke(messages)
-        tool_calls = list(getattr(response, "tool_calls", []) or [])[: self.max_tool_calls]
         executions: list[ToolExecution] = []
-        tool_messages: list[ToolMessage] = []
-        for call in tool_calls:
-            name = str(call.get("name", ""))
-            args = dict(call.get("args") or {})
-            call_id = str(call.get("id") or name)
-            try:
-                if name == "search_pinecone_history":
-                    payload = self._search_pinecone(**args)
-                elif name == "search_official_history":
-                    payload = self._search_official(**args)
+        requested_tools: list[str] = []
+        executed_tools: set[str] = set()
+        conversation = list(messages)
+        response = self._bound_model.invoke(conversation)
+        model_invocations = 1
+        returned_to_model = False
+
+        while len(executions) < self.max_tool_calls:
+            remaining = self.max_tool_calls - len(executions)
+            tool_calls = list(getattr(response, "tool_calls", []) or [])[:remaining]
+            if not tool_calls:
+                break
+
+            tool_messages: list[ToolMessage] = []
+            for call in tool_calls:
+                name = str(call.get("name", ""))
+                args = dict(call.get("args") or {})
+                call_id = str(call.get("id") or name)
+                requested_tools.append(name)
+                if name in executed_tools:
+                    executions.append(ToolExecution(name, False, 0, "skipped:duplicate"))
+                    payload: Any = {"error": "duplicate tool call skipped"}
                 else:
-                    raise ValueError(f"허용되지 않은 도구: {name}")
-                executions.append(ToolExecution(name, True, len(payload)))
+                    try:
+                        if name == "search_pinecone_history":
+                            payload = self._search_pinecone(**args)
+                        elif name == "search_official_history":
+                            payload = self._search_official(**args)
+                        else:
+                            raise ValueError(f"허용되지 않은 도구: {name}")
+                        executed_tools.add(name)
+                        executions.append(ToolExecution(name, True, len(payload)))
+                    except Exception as exc:
+                        executions.append(
+                            ToolExecution(name, False, 0, f"{type(exc).__name__}: {exc}")
+                        )
+                        payload = {"error": "tool execution failed"}
                 tool_messages.append(
                     ToolMessage(
-                        content=json.dumps(payload, ensure_ascii=False), tool_call_id=call_id
-                    )
-                )
-            except Exception as exc:
-                executions.append(ToolExecution(name, False, 0, f"{type(exc).__name__}: {exc}"))
-                tool_messages.append(
-                    ToolMessage(
-                        content=json.dumps({"error": str(exc)}, ensure_ascii=False),
+                        content=json.dumps(payload, ensure_ascii=False),
                         tool_call_id=call_id,
                     )
                 )
+
+            conversation.extend([response, *tool_messages])
+            response = self._bound_model.invoke(conversation)
+            model_invocations += 1
+            returned_to_model = True
 
         if "search_pinecone_history" not in self._results:
             try:
@@ -177,11 +205,6 @@ class HybridHistoryRetriever:
                         f"{type(exc).__name__}: {exc}",
                     )
                 )
-        returned_to_model = False
-        if tool_messages:
-            self._bound_model.invoke([*messages, response, *tool_messages])
-            returned_to_model = True
-
         merged: dict[str, SourceDocument] = {}
         for documents in self._results.values():
             for document in documents:
@@ -190,9 +213,10 @@ class HybridHistoryRetriever:
                 if existing is None or document.score > existing.score:
                     merged[key] = document
         self.last_trace = {
-            "requested_tools": [str(call.get("name", "")) for call in tool_calls],
+            "requested_tools": requested_tools,
             "executions": [asdict(item) for item in executions],
             "tool_results_returned_to_gemini": returned_to_model,
+            "tool_model_invocations": model_invocations,
             "official_search": asdict(self.official_client.last_trace),
         }
         return list(merged.values())
